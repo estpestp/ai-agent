@@ -79,22 +79,71 @@ def ask():
         ],
         "temperature": 0.3
     }
-    try:
-        response = requests.post(
-            f"{AI_BASE_URL}/chat/completions",
-            headers={"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"},
-            json=payload,
-            timeout=45
-        )
-        response.raise_for_status()
-        result = response.json()
-        answer = result["choices"][0]["message"]["content"]
-        return jsonify({"ok": True, "answer": answer, "ai_configured": True, "model": AI_MODEL})
-    except requests.Timeout:
-        return jsonify({"error": "AI 응답 시간이 초과됐어. 잠깐 뒤 다시 시도해 줘."}), 504
-    except (requests.RequestException, KeyError, ValueError) as exc:
-        app.logger.exception("AI provider request failed")
-        return jsonify({"error": "AI 서비스 요청에 실패했어. API 주소·키·모델 설정을 확인해 줘."}), 502
+    # Retry transient provider failures (e.g. Gemini 503) with short backoff.
+    # Three 30-second attempts plus backoff fit within the Render 120-second timeout.
+    retryable_statuses = {429, 500, 502, 503, 504}
+    last_response = None
+
+    for attempt in range(3):
+        try:
+            response = requests.post(
+                f"{AI_BASE_URL}/chat/completions",
+                headers={"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=30
+            )
+            last_response = response
+
+            if response.status_code in retryable_statuses and attempt < 2:
+                app.logger.warning(
+                    "AI provider returned HTTP %s; retrying attempt %s/3",
+                    response.status_code, attempt + 2
+                )
+                time.sleep(attempt + 1)
+                continue
+
+            response.raise_for_status()
+            result = response.json()
+            answer = result["choices"][0]["message"]["content"]
+            return jsonify({"ok": True, "answer": answer, "ai_configured": True, "model": AI_MODEL})
+
+        except requests.Timeout:
+            if attempt < 2:
+                app.logger.warning("AI provider timed out; retrying attempt %s/3", attempt + 2)
+                time.sleep(attempt + 1)
+                continue
+            app.logger.warning("AI provider timed out after 3 attempts")
+            return jsonify({"error": "AI 응답 시간이 3번의 시도에도 도착하지 않았어. 잠시 후 다시 시도해 줘."}), 504
+
+        except requests.HTTPError:
+            status = last_response.status_code if last_response is not None else 502
+            if status in retryable_statuses:
+                app.logger.warning("AI provider still unavailable after retries (HTTP %s)", status)
+                if status == 429:
+                    return jsonify({"error": "AI 요청 한도에 걸렸어. 잠시 기다렸다가 다시 시도해 줘."}), 429
+                if status == 503:
+                    return jsonify({"error": "Gemini AI 서비스가 일시적으로 혼잡하거나 이용 불가 상태야. 잠시 후 다시 시도해 줘."}), 503
+                return jsonify({"error": f"AI 서비스가 일시적으로 응답하지 않아 (HTTP {status}). 잠시 후 다시 시도해 줘."}), 502
+
+            app.logger.warning("AI provider rejected request with HTTP %s", status)
+            if status in {401, 403}:
+                return jsonify({"error": "AI 인증에 실패했어. Render의 AI_API_KEY 설정을 확인해 줘."}), 502
+            if status == 404:
+                return jsonify({"error": "AI API 주소 또는 모델 경로를 찾을 수 없어. AI_BASE_URL 설정을 확인해 줘."}), 502
+            return jsonify({"error": f"AI 서비스 요청이 거부됐어 (HTTP {status}). API 주소·키·모델 설정을 확인해 줘."}), 502
+
+        except requests.RequestException:
+            app.logger.exception("AI provider connection failed")
+            if attempt < 2:
+                time.sleep(attempt + 1)
+                continue
+            return jsonify({"error": "AI 서비스에 연결할 수 없어. 잠시 후 다시 시도해 줘."}), 502
+
+        except (KeyError, ValueError):
+            app.logger.exception("AI provider returned an unexpected response")
+            return jsonify({"error": "AI 서비스에서 예상하지 못한 응답을 받았어. 잠시 후 다시 시도해 줘."}), 502
+
+    return jsonify({"error": "AI 요청에 실패했어. 잠시 후 다시 시도해 줘."}), 502
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")))
