@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Agent API</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at top,#172554 0,#090d18 52%);color:#e5e7eb;display:grid;place-items:center;padding:24px}
+main{width:min(760px,100%);border:1px solid #273449;border-radius:24px;padding:clamp(24px,5vw,44px);background:#0b1220e8;box-shadow:0 24px 80px #0005}
+.tag{display:inline-flex;gap:8px;align-items:center;padding:7px 11px;border:1px solid #334155;border-radius:999px;color:#93c5fd;font-size:13px}
+.dot{width:8px;height:8px;border-radius:50%;background:#34d399}h1{font-size:clamp(32px,6vw,48px);letter-spacing:-1.5px;margin:22px 0 12px}p{color:#aab7cb;line-height:1.7}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:26px 0}.item{border:1px solid #253247;background:#101a2b;border-radius:14px;padding:16px}.item b{display:block;margin-bottom:8px}.item span{color:#9caec5;font-size:14px}.code{font-family:ui-monospace,monospace;background:#070b13;border:1px solid #253247;padding:16px;border-radius:12px;overflow-wrap:anywhere;color:#bfdbfe;font-size:13px}.foot{font-size:12px;color:#64748b;margin-top:24px}
+</style>
+</head>
+<body><main>
+<div class="tag"><span class="dot"></span> API SERVER · ONLINE CHECK</div>
+<h1>AI Agent Server</h1>
+<p>Python 코드가 요청을 보내고, 이 서버가 JSON 답변을 돌려주는 API야. 서버 상태와 AI 설정 여부를 확인할 수 있어.</p>
+<div class="grid">
+<div class="item"><b>① Health check</b><span>서버가 실행 중인지 확인</span></div>
+<div class="item"><b>② POST /api/ask</b><span>질문과 페이지 요약 전송</span></div>
+<div class="item"><b>③ JSON response</b><span>answer 또는 오류 정보 반환</span></div>
+</div>
+<div class="code">GET /health<br>POST /api/ask<br>Authorization: Bearer YOUR_API_TOKEN</div>
+<p class="foot">API_TOKEN으로 보호돼. 실제 AI 답변을 쓰려면 서버 환경변수에 AI_API_KEY와 AI_MODEL을 설정해야 해. API 키를 브라우저에 넣지 마.</p>
+</main></body></html>
