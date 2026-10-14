@@ -4,6 +4,7 @@ from collections import defaultdict, deque
 from threading import Lock
 
 import requests
+import json
 from flask import Flask, jsonify, request, send_from_directory
 
 app = Flask(__name__, static_folder="static")
@@ -126,6 +127,48 @@ def ask():
             response.raise_for_status()
             result = response.json()
             answer = result["choices"][0]["message"]["content"]
+
+            if asks_for_json:
+                def parse_json_object(text):
+                    if not isinstance(text, str):
+                        raise ValueError("AI answer is not text")
+                    cleaned = text.strip()
+                    if cleaned.startswith("```"):
+                        cleaned = cleaned.split("\n", 1)[-1]
+                        if cleaned.rstrip().endswith("```"):
+                            cleaned = cleaned.rstrip()[:-3].rstrip()
+                    start = cleaned.find("{")
+                    if start < 0:
+                        raise ValueError("No JSON object found")
+                    parsed, _ = json.JSONDecoder().raw_decode(cleaned[start:])
+                    if not isinstance(parsed, dict):
+                        raise ValueError("JSON output is not an object")
+                    return parsed
+
+                try:
+                    answer = json.dumps(parse_json_object(answer), ensure_ascii=False)
+                except (ValueError, json.JSONDecodeError):
+                    app.logger.warning("AI returned non-JSON content for a JSON request; retrying once with stricter instructions")
+                    repair_payload = dict(payload)
+                    repair_payload["messages"] = list(payload["messages"]) + [
+                        {"role": "assistant", "content": str(answer)[:5000]},
+                        {"role": "user", "content": (
+                            "이전 응답은 파싱 가능한 JSON이 아니야. 다시 작성해. "
+                            "유효한 JSON 객체 하나만 출력하고, 마크다운이나 설명을 붙이지 마. "
+                            "필요한 필드와 데이터 구조는 원래 요청을 그대로 따라."
+                        )}
+                    ]
+                    repair_response = requests.post(
+                        f"{AI_BASE_URL}/chat/completions",
+                        headers={"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"},
+                        json=repair_payload,
+                        timeout=30
+                    )
+                    repair_response.raise_for_status()
+                    repair_result = repair_response.json()
+                    repaired_answer = repair_result["choices"][0]["message"]["content"]
+                    answer = json.dumps(parse_json_object(repaired_answer), ensure_ascii=False)
+
             return jsonify({"ok": True, "answer": answer, "ai_configured": True, "model": AI_MODEL})
 
         except requests.Timeout:
